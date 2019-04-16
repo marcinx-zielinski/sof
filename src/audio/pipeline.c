@@ -280,6 +280,10 @@ static int pipeline_comp_params(struct comp_dev *current, void *data, int dir)
 	tracev_pipe("pipeline_comp_params(), current->comp.id = %u, dir = %u",
 		    current->comp.id, dir);
 
+	/* don't propagate params to other pipelines */
+	if (!comp_is_single_pipeline(current, ppl_data->start))
+		return 0;
+
 	/* don't do any params if current is running */
 	if (current->state == COMP_STATE_ACTIVE)
 		return 0;
@@ -320,6 +324,7 @@ int pipeline_params(struct pipeline *p, struct comp_dev *host,
 	trace_pipe_with_ids(p, "pipeline_params()");
 
 	data.params = params;
+	data.start = host;
 
 	spin_lock_irq(&p->lock, flags);
 
@@ -337,9 +342,14 @@ int pipeline_params(struct pipeline *p, struct comp_dev *host,
 static int pipeline_comp_prepare(struct comp_dev *current, void *data, int dir)
 {
 	int err = 0;
+	struct pipeline_data *ppl_data = data;
 
 	tracev_pipe("pipeline_comp_prepare(), current->comp.id = %u, dir = %u",
 		    current->comp.id, dir);
+
+	/* don't propagate preparation to other pipelines */
+	if (!comp_is_single_pipeline(ppl_data->start, current))
+		return 0;
 
 	err = comp_prepare(current);
 	if (err < 0 || err == PPL_STATUS_PATH_STOP)
@@ -352,14 +362,17 @@ static int pipeline_comp_prepare(struct comp_dev *current, void *data, int dir)
 /* prepare the pipeline for usage - preload host buffers here */
 int pipeline_prepare(struct pipeline *p, struct comp_dev *dev)
 {
+	struct pipeline_data ppl_data;
 	int ret = 0;
 	uint32_t flags;
 
 	trace_pipe_with_ids(p, "pipeline_prepare()");
 
+	ppl_data.start = dev;
+
 	spin_lock_irq(&p->lock, flags);
 
-	ret = pipeline_comp_prepare(dev, NULL, dev->params.direction);
+	ret = pipeline_comp_prepare(dev, &ppl_data, dev->params.direction);
 	if (ret < 0) {
 		trace_pipe_error("pipeline_prepare() error: ret = %d,"
 				 "dev->comp.id = %u", ret, dev->comp.id);
